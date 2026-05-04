@@ -194,6 +194,119 @@ function getRootHtml(origin) {
         <div class="mt-10 rounded-2xl border border-zinc-100 p-6 dark:border-zinc-700/40">
           <form id="urlForm" class="space-y-4">
             <input type="text" id="targetUrl" placeholder="输入漫画站地址 (例如: example.com)" required
+              class="w-full rounded-md px-4 py-2 text-sm shadow-sm ring-1            'Location': `${url.origin}/${encodeURIComponent(absoluteLocation)}`,
+            ...corsHeaders(request)
+          }
+        });
+      }
+    }
+
+    // --- 修复 3: 深度内容重写 (解决图片/脚本加载失败) ---
+    let body = response.body;
+    if (contentType.includes('text/html') || contentType.includes('text/css') || contentType.includes('application/javascript')) {
+      let text = await response.text();
+      const proxyOrigin = url.origin;
+      const targetOrigin = target.origin;
+
+      // 替换 / 开头的绝对路径
+      text = text.replace(/(href|src|action|data-src)=["']\/([^/][^"']*)["']/g, 
+        `$1="${proxyOrigin}/${targetOrigin}/$2"`);
+      
+      // 替换协议相对路径 //
+      text = text.replace(/(href|src|action|data-src)=["']\/\/([^"']+)["']/g, 
+        `$1="${proxyOrigin}/https://$2"`);
+
+      // 修复懒加载和动态生成的图片脚本
+      text = text.replace(/(srcset)=["']([^"']+)["']/g, (match, p1, p2) => {
+        return `${p1}="${proxyOrigin}/https:${p2}"`;
+      });
+
+      // 处理所有的图片，确保 data-src 和懒加载图像也被代理
+      text = text.replace(/(data-src)=["']([^"']+)["']/g, (match, p1, p2) => {
+        return `${p1}="${proxyOrigin}/https:${p2}"`;
+      });
+
+      body = text;
+    }
+
+    // 构建返回给浏览器的响应头
+    const newHeaders = new Headers(response.headers);
+    Object.entries(corsHeaders(request)).forEach(([k, v]) => newHeaders.set(k, v));
+
+    // 修复 Set-Cookie 路径
+    if (newHeaders.has('Set-Cookie')) {
+      let cookie = newHeaders.get('Set-Cookie');
+      newHeaders.set('Set-Cookie', cookie.replace(/Path=\/[^;]*/i, 'Path=/'));
+    }
+
+    // 禁用缓存，确保漫画加载实时
+    newHeaders.set('Cache-Control', 'no-store');
+
+    // 静态资源缓存（图片、CSS、JS 等）
+    if (contentType.includes('image/') || contentType.includes('text/css') || contentType.includes('application/javascript')) {
+      newHeaders.set('Cache-Control', 'public, max-age=86400');
+    }
+
+    return new Response(body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: newHeaders
+    });
+
+  } catch (error) {
+    console.error('Error in proxy request:', error); // 记录日志
+    return new Response(JSON.stringify({ error: error.message }), { 
+      status: 502, 
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(request) } 
+    });
+  }
+}
+
+function corsHeaders(request) {
+  const origin = request.headers.get('Origin') || '*';
+  return {
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': '*',
+    'Access-Control-Max-Age': '86400',
+  };
+}
+
+/**
+ * 保持你原本精美的 Web UI
+ */
+function getRootHtml(origin) {
+  return `<!DOCTYPE html>
+<html lang="zh-CN" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cloudflare Proxy - 增强修复版</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background-color: #fafafa; color: #18181b; }
+    @media (prefers-color-scheme: dark) {
+      body { background-color: #000; color: #f4f4f5; }
+    }
+  </style>
+</head>
+<body class="flex h-full flex-col">
+  <main class="flex-auto sm:px-8 mt-16 sm:mt-32">
+    <div class="mx-auto max-w-7xl lg:px-8">
+      <div class="max-w-2xl mx-auto">
+        <div class="text-6xl mb-6">🌐</div>
+        <h1 class="text-4xl font-bold tracking-tight sm:text-5xl">Proxy Pro</h1>
+        <!-- 这里添加自定义欢迎语句 -->
+        <p class="mt-6 text-xl text-teal-500 font-semibold">
+          欢迎使用 Cloudflare 代理服务
+        </p>
+        <p class="mt-6 text-base text-zinc-600 dark:text-zinc-400">
+          已针对漫画网站、图片防盗链进行专项修复。支持全协议代理及内容重写。
+        </p>
+
+        <div class="mt-10 rounded-2xl border border-zinc-100 p-6 dark:border-zinc-700/40">
+          <form id="urlForm" class="space-y-4">
+            <input type="text" id="targetUrl" placeholder="输入漫画站地址 (例如: example.com)" required
               class="w-full rounded-md px-4 py-2 text-sm shadow-sm ring-1 ring-zinc-300 dark:bg-z
 /**
  * 保持你原本精美的 Web UI
